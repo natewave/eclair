@@ -21,7 +21,7 @@ class Server(nodeParams: NodeParams, authenticator: ActorRef, address: InetSocke
   import Tcp._
   import context.system
 
-  IO(Tcp) ! Bind(self, address, options = KeepAlive(true) :: Nil, pullMode = true)
+  IO(Tcp) ! Bind(self, address, options = KeepAlive(true) :: SendBufferSize(System.getProperty("sendbuffer", "8192").toInt) :: Nil, pullMode = true)
 
   def receive() = {
     case Bound(localAddress) =>
