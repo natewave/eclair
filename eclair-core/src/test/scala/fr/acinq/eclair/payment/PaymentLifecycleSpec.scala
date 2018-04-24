@@ -99,7 +99,7 @@ class PaymentLifecycleSpec extends BaseRouterSpec {
     routerForwarder.expectMsg(RouteRequest(a, d, ignoreNodes = Set(c), ignoreChannels = Set.empty))
 
     // let's simulate a response by the router with another route
-    sender.send(paymentFSM, RouteResponse(hops, Set(c), Set.empty))
+    sender.send(paymentFSM, RouteResponse(hops, Set(c), Set.empty, 1014300L, 15L))
     awaitCond(paymentFSM.stateName == WAITING_FOR_PAYMENT_COMPLETE)
     val WaitingForComplete(_, _, cmd2, _, _, _, _, _) = paymentFSM.stateData
     // and reply a 2nd time with an unparsable failure

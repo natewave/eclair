@@ -47,7 +47,7 @@ import scala.util.Try
 case class ChannelDesc(shortChannelId: ShortChannelId, a: PublicKey, b: PublicKey)
 case class Hop(nodeId: PublicKey, nextNodeId: PublicKey, lastUpdate: ChannelUpdate)
 case class RouteRequest(source: PublicKey, target: PublicKey, assistedRoutes: Seq[Seq[ExtraHop]] = Nil, ignoreNodes: Set[PublicKey] = Set.empty, ignoreChannels: Set[ChannelDesc] = Set.empty)
-case class RouteResponse(hops: Seq[Hop], ignoreNodes: Set[PublicKey], ignoreChannels: Set[ChannelDesc]) { require(hops.size > 0, "route cannot be empty") }
+case class RouteResponse(hops: Seq[Hop], ignoreNodes: Set[PublicKey], ignoreChannels: Set[ChannelDesc], feeBaseMsat: Long, feeProportionalMillionths: Long) { require(hops.size > 0, "route cannot be empty") }
 case class ExcludeChannel(desc: ChannelDesc) // this is used when we get a TemporaryChannelFailure, to give time for the channel to recover (note that exclusions are directed)
 case class LiftChannelExclusion(desc: ChannelDesc)
 case object GetRoutingState
@@ -420,7 +420,13 @@ class Router(nodeParams: NodeParams, watcher: ActorRef) extends FSM[State, Data]
       val ignoredUpdates = getIgnoredChannelDesc(d.updates ++ d.privateUpdates ++ assistedUpdates, ignoreNodes) ++ ignoreChannels ++ d.excludedChannels
       log.info(s"finding a route $start->$end with assistedChannels={} ignoreNodes={} ignoreChannels={} excludedChannels={}", assistedUpdates.keys.mkString(","), ignoreNodes.map(_.toBin).mkString(","), ignoreChannels.mkString(","), d.excludedChannels.mkString(","))
       findRoute(d.graph, start, end, withEdges = assistedUpdates, withoutEdges = ignoredUpdates)
-        .map(r => sender ! RouteResponse(r, ignoreNodes, ignoreChannels))
+        .map { r =>
+          val (fee_base_msat, fee_proportional_millionths) = r.foldLeft((0L, 0L)) { (acc: Tuple2[Long, Long], hop: Hop) =>
+            val baseMsat = acc._1 + hop.lastUpdate.feeBaseMsat
+            val proportional = acc._2 + hop.lastUpdate.feeProportionalMillionths
+            (baseMsat, proportional)
+          }
+          sender ! RouteResponse(r, ignoreNodes, ignoreChannels, fee_base_msat, fee_proportional_millionths) }
         .recover { case t => sender ! Status.Failure(t) }
       stay
   }

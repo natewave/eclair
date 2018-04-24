@@ -48,7 +48,7 @@ class PaymentLifecycle(sourceNodeId: PublicKey, router: ActorRef, register: Acto
   }
 
   when(WAITING_FOR_ROUTE) {
-    case Event(RouteResponse(hops, ignoreNodes, ignoreChannels), WaitingForRoute(s, c, failures)) =>
+    case Event(RouteResponse(hops, ignoreNodes, ignoreChannels, feeBaseMsat, feeProportionalMillionths), WaitingForRoute(s, c, failures)) =>
       log.info(s"route found: attempt=${failures.size + 1}/${c.maxAttempts} route=${hops.map(_.nextNodeId).mkString("->")} channels=${hops.map(_.lastUpdate.shortChannelId).mkString("->")}")
       val firstHop = hops.head
       val finalExpiry = Globals.blockCount.get().toInt + c.finalCltvExpiry.toInt
