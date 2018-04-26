@@ -231,12 +231,15 @@ trait Service extends Logging {
                       }
 
                       case "findroute" => req.params match {
-                        case JString(nodeId) :: Nil if nodeId.length() == 66 => Try(PublicKey(nodeId)) match {
-                          case Success(pk) => completeRpcFuture(req.id, (router ? RouteRequest(appKit.nodeParams.nodeId, pk)).mapTo[RouteResponse])
+                        case JInt(amountMsat) :: JString(nodeId) :: Nil if nodeId.length() == 66 => Try(PublicKey(nodeId)) match {
+                          case Success(pk) => completeRpcFuture(req.id, (router ? RouteRequest(amountMsat.toLong, appKit.nodeParams.nodeId, pk)).mapTo[RouteResponse])
                           case Failure(_) => reject(RpcValidationRejection(req.id, s"invalid nodeId hash '$nodeId'"))
                         }
                         case JString(paymentRequest) :: Nil => Try(PaymentRequest.read(paymentRequest)) match {
-                          case Success(pr) => completeRpcFuture(req.id, (router ? RouteRequest(appKit.nodeParams.nodeId, pr.nodeId)).mapTo[RouteResponse])
+                          case Success(pr) => pr.amount match {
+                            case Some(amt) => completeRpcFuture(req.id, (router ? RouteRequest(amt.toLong, appKit.nodeParams.nodeId, pr.nodeId) ).mapTo[RouteResponse] )
+                            case _ => reject(UnknownParamsRejection(req.id, "you must specify an amount to find a payment route"))
+                          }
                           case Failure(t) => reject(RpcValidationRejection(req.id, s"invalid payment request ${t.getLocalizedMessage}"))
                         }
                         case _ => reject(UnknownParamsRejection(req.id, "[payment_request] or [nodeId]"))

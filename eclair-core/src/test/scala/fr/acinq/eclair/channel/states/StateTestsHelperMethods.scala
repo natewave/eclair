@@ -117,7 +117,7 @@ trait StateTestsHelperMethods extends TestKitBase {
     val sender = TestProbe()
     val receiverPubkey = r.underlyingActor.nodeParams.nodeId
     val expiry = 400144
-    val cmd = PaymentLifecycle.buildCommand(amountMsat, expiry, H, Hop(null, receiverPubkey, null) :: Nil)._1.copy(commit = false)
+    val cmd = PaymentLifecycle.buildCommand(amountMsat, expiry, H, Hop(null, receiverPubkey, 0L, 0L, null) :: Nil)._1.copy(commit = false)
     sender.send(s, cmd)
     sender.expectMsg("ok")
     val htlc = s2r.expectMsgType[UpdateAddHtlc]

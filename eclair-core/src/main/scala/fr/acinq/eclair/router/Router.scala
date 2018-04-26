@@ -20,7 +20,7 @@ import java.io.StringWriter
 
 import akka.actor.{ActorRef, FSM, Props, Status}
 import akka.pattern.pipe
-import fr.acinq.bitcoin.BinaryData
+import fr.acinq.bitcoin.{BinaryData, Satoshi}
 import fr.acinq.bitcoin.Crypto.PublicKey
 import fr.acinq.bitcoin.Script.{pay2wsh, write}
 import fr.acinq.eclair._
@@ -45,9 +45,9 @@ import scala.util.Try
 // @formatter:off
 
 case class ChannelDesc(shortChannelId: ShortChannelId, a: PublicKey, b: PublicKey)
-case class Hop(nodeId: PublicKey, nextNodeId: PublicKey, lastUpdate: ChannelUpdate)
-case class RouteRequest(source: PublicKey, target: PublicKey, assistedRoutes: Seq[Seq[ExtraHop]] = Nil, ignoreNodes: Set[PublicKey] = Set.empty, ignoreChannels: Set[ChannelDesc] = Set.empty)
-case class RouteResponse(hops: Seq[Hop], ignoreNodes: Set[PublicKey], ignoreChannels: Set[ChannelDesc], feeBaseMsat: Long, feeProportionalMillionths: Long) { require(hops.size > 0, "route cannot be empty") }
+case class Hop(nodeId: PublicKey, nextNodeId: PublicKey, fee: Long, amtToForward: Long, lastUpdate: ChannelUpdate)
+case class RouteRequest(amountMsat: Long, source: PublicKey, target: PublicKey, assistedRoutes: Seq[Seq[ExtraHop]] = Nil, ignoreNodes: Set[PublicKey] = Set.empty, ignoreChannels: Set[ChannelDesc] = Set.empty)
+case class RouteResponse(hops: Seq[Hop], totalFees: Long, ignoreNodes: Set[PublicKey], ignoreChannels: Set[ChannelDesc]) { require(hops.size > 0, "route cannot be empty") }
 case class ExcludeChannel(desc: ChannelDesc) // this is used when we get a TemporaryChannelFailure, to give time for the channel to recover (note that exclusions are directed)
 case class LiftChannelExclusion(desc: ChannelDesc)
 case object GetRoutingState
@@ -411,7 +411,7 @@ class Router(nodeParams: NodeParams, watcher: ActorRef) extends FSM[State, Data]
       graph2dot(d.nodes, d.channels) pipeTo sender
       stay
 
-    case Event(RouteRequest(start, end, assistedRoutes, ignoreNodes, ignoreChannels), d) =>
+    case Event(RouteRequest(amount, start, end, assistedRoutes, ignoreNodes, ignoreChannels), d) =>
       // we convert extra routing info provided in the payment request to fake channel_update
       // it takes precedence over all other channel_updates we know
       val assistedUpdates = assistedRoutes.flatMap(toFakeUpdates(_, end)).toMap
@@ -419,14 +419,10 @@ class Router(nodeParams: NodeParams, watcher: ActorRef) extends FSM[State, Data]
       // TODO: in case of duplicates, d.updates will be overriden by assistedUpdates even if they are more recent!
       val ignoredUpdates = getIgnoredChannelDesc(d.updates ++ d.privateUpdates ++ assistedUpdates, ignoreNodes) ++ ignoreChannels ++ d.excludedChannels
       log.info(s"finding a route $start->$end with assistedChannels={} ignoreNodes={} ignoreChannels={} excludedChannels={}", assistedUpdates.keys.mkString(","), ignoreNodes.map(_.toBin).mkString(","), ignoreChannels.mkString(","), d.excludedChannels.mkString(","))
-      findRoute(d.graph, start, end, withEdges = assistedUpdates, withoutEdges = ignoredUpdates)
+      findRoute(d.graph, amount, start, end, withEdges = assistedUpdates, withoutEdges = ignoredUpdates)
         .map { r =>
-          val (fee_base_msat, fee_proportional_millionths) = r.foldLeft((0L, 0L)) { (acc: Tuple2[Long, Long], hop: Hop) =>
-            val baseMsat = acc._1 + hop.lastUpdate.feeBaseMsat
-            val proportional = acc._2 + hop.lastUpdate.feeProportionalMillionths
-            (baseMsat, proportional)
-          }
-          sender ! RouteResponse(r, ignoreNodes, ignoreChannels, fee_base_msat, fee_proportional_millionths) }
+          val totalFees = r.map(_.fee).sum
+          sender ! RouteResponse(r, totalFees, ignoreNodes, ignoreChannels) }
         .recover { case t => sender ! Status.Failure(t) }
       stay
   }
@@ -691,7 +687,7 @@ object Router {
     * @param withoutEdges those will be removed before computing the route, and added back after so that g is left unchanged
     * @return
     */
-  def findRoute(g: DirectedWeightedPseudograph[PublicKey, DescEdge], localNodeId: PublicKey, targetNodeId: PublicKey, withEdges: Map[ChannelDesc, ChannelUpdate] = Map.empty, withoutEdges: Iterable[ChannelDesc] = Iterable.empty): Try[Seq[Hop]] = Try {
+  def findRoute(g: DirectedWeightedPseudograph[PublicKey, DescEdge], amountMsat: Long, localNodeId: PublicKey, targetNodeId: PublicKey, withEdges: Map[ChannelDesc, ChannelUpdate] = Map.empty, withoutEdges: Iterable[ChannelDesc] = Iterable.empty): Try[Seq[Hop]] = Try {
     if (localNodeId == targetNodeId) throw CannotRouteToSelf
     val workingGraph = if (withEdges.isEmpty && withoutEdges.isEmpty) {
       // no filtering, let's work on the base graph
@@ -710,7 +706,28 @@ object Router {
     if (!workingGraph.containsVertex(targetNodeId)) throw RouteNotFound
     val route_opt = Option(DijkstraShortestPath.findPathBetween(workingGraph, localNodeId, targetNodeId))
     route_opt match {
-      case Some(path) => path.getEdgeList.map(edge => Hop(edge.desc.a, edge.desc.b, edge.u))
+      case Some(path) => {
+        val edges = path.getEdgeList
+        val lastHop = edges.size - 1
+
+        // we start with amountMsat and for every hop, we calculate the fee and deduce it to construct the amount to forward to the next hop
+        val (_, hops) = edges.zipWithIndex.foldLeft((amountMsat, Seq.empty[Hop])) { case ((runningAmt, currentHops), (edge, index)) =>
+
+          // last hop, we send the exact amount with no fee
+          if (index == lastHop) {
+            val hop = Hop(edge.desc.a, edge.desc.b, 0L, runningAmt, edge.u)
+            (runningAmt, currentHops :+ hop)
+          } else {
+            val fee = nodeFee(runningAmt, edge.u.feeBaseMsat, edge.u.feeProportionalMillionths)
+            val amtToForward = runningAmt - fee
+            val hop = Hop(edge.desc.a, edge.desc.b, fee, amtToForward, edge.u)
+
+            (amtToForward, currentHops :+ hop)
+          }
+        }
+
+        hops
+      }
       case None => throw RouteNotFound
     }
   }

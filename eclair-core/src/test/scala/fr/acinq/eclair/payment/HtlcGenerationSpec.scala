@@ -162,14 +162,6 @@ object HtlcGenerationSpec {
   val channelUpdate_cd = defaultChannelUpdate.copy(shortChannelId = ShortChannelId(3), cltvExpiryDelta = 10, feeBaseMsat = 60000, feeProportionalMillionths = 1)
   val channelUpdate_de = defaultChannelUpdate.copy(shortChannelId = ShortChannelId(4), cltvExpiryDelta = 7, feeBaseMsat = 766000, feeProportionalMillionths = 10)
 
-  // simple route a -> b -> c -> d -> e
-
-  val hops =
-    Hop(a, b, channelUpdate_ab) ::
-      Hop(b, c, channelUpdate_bc) ::
-      Hop(c, d, channelUpdate_cd) ::
-      Hop(d, e, channelUpdate_de) :: Nil
-
   val finalAmountMsat = 42000000L
   val currentBlockCount = 420000
   val finalExpiry = currentBlockCount + Channel.MIN_CLTV_EXPIRY
@@ -190,4 +182,12 @@ object HtlcGenerationSpec {
 
   val expiry_ab = expiry_bc + channelUpdate_bc.cltvExpiryDelta
   val amount_ab = amount_bc + fee_b
+
+  // simple route a -> b -> c -> d -> e
+
+  val hops =
+    Hop(a, b, fee_b, amount_ab, channelUpdate_ab) ::
+      Hop(b, c, fee_c, amount_bc, channelUpdate_bc) ::
+      Hop(c, d, fee_d, amount_cd, channelUpdate_cd) ::
+      Hop(d, e, 0L, amount_de, channelUpdate_de) :: Nil
 }

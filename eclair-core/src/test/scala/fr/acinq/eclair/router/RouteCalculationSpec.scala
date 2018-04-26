@@ -36,6 +36,7 @@ import scala.util.{Failure, Success}
 class RouteCalculationSpec extends FunSuite {
 
   val DUMMY_SIG = BinaryData("3045022100e0a180fdd0fe38037cc878c03832861b40a29d32bd7b40b10c9e1efc8c1468a002205ae06d1624896d0d29f4b31e32772ea3cb1b4d7ed4e077e5da28dcc33c0e781201")
+  val DUMMY_AMT = 1L
 
   def makeChannel(shortChannelId: Long, nodeIdA: PublicKey, nodeIdB: PublicKey) = {
     val (nodeId1, nodeId2) = if (Announcements.isNode1(nodeIdA, nodeIdB)) (nodeIdA, nodeIdB) else (nodeIdB, nodeIdA)
@@ -67,7 +68,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, e)
+    val route = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
 
   }
@@ -83,11 +84,11 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route1 = Router.findRoute(g, a, e)
+    val route1 = Router.findRoute(g, DUMMY_AMT,  a, e)
     assert(route1.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
 
     Router.removeEdge(g, ChannelDesc(ShortChannelId(3L), c, d))
-    val route2 = Router.findRoute(g, a, e)
+    val route2 = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route2.map(hops2Ids) === Failure(RouteNotFound))
 
   }
@@ -104,7 +105,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, e)
+    val route = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
   }
 
@@ -117,7 +118,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, e)
+    val route = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route.map(hops2Ids) === Failure(RouteNotFound))
   }
 
@@ -131,7 +132,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, e)
+    val route = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route.map(hops2Ids) === Failure(RouteNotFound))
   }
 
@@ -145,7 +146,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, e)
+    val route = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route.map(hops2Ids) === Failure(RouteNotFound))
   }
 
@@ -159,7 +160,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, a)
+    val route = Router.findRoute(g, DUMMY_AMT, a, a)
     assert(route.map(hops2Ids) === Failure(CannotRouteToSelf))
   }
 
@@ -174,7 +175,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route = Router.findRoute(g, a, b)
+    val route = Router.findRoute(g, DUMMY_AMT, a, b)
     assert(route.map(hops2Ids) === Success(1 :: Nil))
   }
 
@@ -190,10 +191,10 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route1 = Router.findRoute(g, a, e)
+    val route1 = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route1.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
 
-    val route2 = Router.findRoute(g, e, a)
+    val route2 = Router.findRoute(g, DUMMY_AMT, e, a)
     assert(route2.map(hops2Ids) === Failure(RouteNotFound))
   }
 
@@ -230,9 +231,9 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val hops = Router.findRoute(g, a, e).get
+    val hops = Router.findRoute(g, DUMMY_AMT, a, e).get
 
-    assert(hops === Hop(a, b, uab) :: Hop(b, c, ubc) :: Hop(c, d, ucd) :: Hop(d, e, ude) :: Nil)
+    assert(hops === Hop(a, b, 1L, 0L, uab) :: Hop(b, c, 0L, 0L, ubc) :: Hop(c, d, 0L, 0L, ucd) :: Hop(d, e, 0L, 0L, ude) :: Nil)
   }
 
   test("stale channels pruning") {
@@ -336,7 +337,7 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route1 = Router.findRoute(g, a, e, withoutEdges = ChannelDesc(ShortChannelId(3L), c, d) :: Nil)
+    val route1 = Router.findRoute(g, DUMMY_AMT, a, e, withoutEdges = ChannelDesc(ShortChannelId(3L), c, d) :: Nil)
     assert(route1.map(hops2Ids) === Failure(RouteNotFound))
 
     // verify that we left the graph untouched
@@ -345,7 +346,7 @@ class RouteCalculationSpec extends FunSuite {
     assert(g.containsVertex(d))
 
     // make sure we can find a route if without the blacklist
-    val route2 = Router.findRoute(g, a, e)
+    val route2 = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route2.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
   }
 
@@ -359,11 +360,11 @@ class RouteCalculationSpec extends FunSuite {
 
     val g = makeGraph(updates)
 
-    val route1 = Router.findRoute(g, a, e)
+    val route1 = Router.findRoute(g, DUMMY_AMT, a, e)
     assert(route1.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
     assert(route1.get.head.lastUpdate.feeBaseMsat == 10)
 
-    val route2 = Router.findRoute(g, a, e, withEdges = Map(makeUpdate(1L, a, b, 5, 5)))
+    val route2 = Router.findRoute(g, DUMMY_AMT, a, e, withEdges = Map(makeUpdate(1L, a, b, 5, 5)))
     assert(route2.map(hops2Ids) === Success(1 :: 2 :: 3 :: 4 :: Nil))
     assert(route2.get.head.lastUpdate.feeBaseMsat == 5)
   }
