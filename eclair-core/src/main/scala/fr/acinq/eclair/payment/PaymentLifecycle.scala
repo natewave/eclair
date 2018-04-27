@@ -54,7 +54,7 @@ class PaymentLifecycle(sourceNodeId: PublicKey, router: ActorRef, register: Acto
       val totalFee = payloads.map(_.fee).sum
       val totalTimeLock = payloads.map(_.outgoingCltvValue).sum
 
-      log.info(s"route found: attempt=${failures.size + 1}/${c.maxAttempts} route=${hops.map(_.nextNodeId).mkString("->")} totalFee=$totalFee totalTimeLock=$totalTimeLock channels=${payloads.map(p => s"(id: ${p.channel_id}, fee: ${p.fee}, cltv: ${p.outgoingCltvValue}, amtToForward: ${p.amtToForward})").mkString("->")}")
+      log.info(s"route found: attempt=${failures.size + 1}/${c.maxAttempts} route=${hops.map(_.nextNodeId).mkString("->")} totalFee=$totalFee totalTimeLock=$totalTimeLock channels=[${payloads.map(p => s"(id: ${p.channel_id}, fee: ${p.fee}, cltv: ${p.outgoingCltvValue}, amtToForward: ${p.amtToForward})").mkString("->")}]")
 
       val (cmd, sharedSecrets) = buildCommand(c.amountMsat, finalExpiry, c.paymentHash, hops)
       val feePct = (cmd.amountMsat - c.amountMsat) / c.amountMsat.toDouble // c.amountMsat is required to be > 0, have to convert to double, otherwise will be rounded
@@ -223,7 +223,7 @@ object PaymentLifecycle {
 
 
   def buildOnion(nodes: Seq[PublicKey], payloads: Seq[PerHopPayload], associatedData: BinaryData): Sphinx.PacketAndSecrets = {
-    //require(nodes.size == payloads.size)
+    require(nodes.size == payloads.size)
     val sessionKey = randomKey
     val payloadsbin: Seq[BinaryData] = payloads
       .map(LightningMessageCodecs.perHopPayloadCodec.encode(_))
